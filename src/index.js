@@ -79,18 +79,37 @@ class LambdaOffline {
           return payload.on('end', () => {
             const event = body ? JSON.parse(body) : {};
             this.serverlessLog(`Invoke (λ: ${functionName})`);
-            if (invocationType === 'Event') {
-              handler(event, { awsRequestId: this.awsRequestId() }, () => {});
-              reply().code(202);
-            } else {
-              const done = (res) => {
-                reply(JSON.stringify(res)).code(202);
-              };
-              const result = handler(event, { awsRequestId: this.awsRequestId() }, done);
+            try {
+              if (invocationType === 'Event') {
+                handler(event, { awsRequestId: this.awsRequestId() }, () => {});
+                reply().code(202);
+              } else {
+                const done = (err ,res = '') => {
+                  console.log('done', err, res)
+                  if (err) {
+                    return reply(JSON.stringify(err)).code(500)
+                  }
+                  const code = (invocationType === 'RequestResponse') ? 200 : 204
+                  reply(JSON.stringify(res)).code(code);
+                };
+                  const result = handler(event, {awsRequestId: this.awsRequestId()}, done);
 
-              if (result && typeof result.then === 'function' && typeof result.catch === 'function') {
-                result.then(done);
+                  if (result && typeof result.then === 'function' && typeof result.catch === 'function') {
+                    result
+                      .then((res) => {
+                        const code = (invocationType === 'RequestResponse') ? 200 : 204
+                        reply(JSON.stringify(res)).code(code);
+                      })
+                      .catch(err => {
+                        this.serverlessLog(`(λ: ${functionName}) promise rejected: "${err.message}"`);
+                        reply(JSON.stringify({message: err.message})).code(500);
+                      });
+                  }
+
               }
+            } catch (err) {
+              this.serverlessLog(`(λ: ${functionName}) return an error: "${err.message}"`);
+              reply(JSON.stringify(err.message)).code(500);
             }
           });
         },
